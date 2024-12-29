@@ -6,7 +6,7 @@ function DayNotePage({ user }) {
   const [notes, setNotes] = useState([]);
   const [editNoteId, setEditNoteId] = useState(null);
 
-  const API_BASE_URL = 'http://localhost:5000';
+  const API_BASE_URL = 'https://notes-backend-ds62.onrender.com';
 
   const fetchNotesForUserAndDate = useCallback(async (selectedDate = date) => {
     try {
