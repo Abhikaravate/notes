@@ -19,11 +19,12 @@ const LoginPage = ({ onLogin }) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
+   const API_BASE_URL = 'https://notes-backend-ds62.onrender.com';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
   
-    const endpoint = isSignUp ? 'http://localhost:5000/signup' : 'http://localhost:5000/login';
+   const endpoint = isSignUp ? `${API_BASE_URL}/signup` : `${API_BASE_URL}/login`;
     const data = isSignUp
       ? { name: formData.name, userId: formData.userId, role: formData.role, password: formData.password }
       : { userId: formData.loginUserId, password: formData.loginPassword };
