@@ -1,154 +1,190 @@
 const express = require('express');
-const mysql = require('mysql2');
+const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
-const port = process.env.PORT ||  5000;
+const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// MySQL Connection
-const db = mysql.createConnection({
-  host: 'sql12.freesqldatabase.com', // Replace with your database host
-  user: 'sql12754379',      // Replace with your database username
-  password: 'kfawAuwwEZ',  // Replace with your database password
-  database: 'sql12754379', // Replace with your database name
-  connectTimeout: 30000 ,
-                             //GRANT ALL PRIVILEGES ON sql12754379.* TO 'sql12754379'@'%' IDENTIFIED BY 'kfawAuwwEZ';
-// CREATE USER 'sql12754379'@'%' IDENTIFIED BY 'kfawAuwwEZ';
-// GRANT ALL PRIVILEGES ON *.* TO 'sql12754379'@'%';
-// FLUSH PRIVILEGES;
+// MongoDB Connection
+const dbURI = process.env.MONGO_URI ;
+mongoose
+  .connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB database'))
+  .catch((err) => console.error('MongoDB connection error:', err));
 
-
+// MongoDB Schema Models
+const userSchema = new mongoose.Schema({
+  name: String,
+  user_id: { type: String, unique: true },
+  password: String,
 });
 
-// const db = mysql.createConnection({
-//   host: 'localhost', // Replace with your database host
-//   user: 'root',      // Replace with your database username
-//   password: '2021',  // Replace with your database password
-//   database: 'couples_app', // Replace with your database name
-// Port number: 3306
-// });
-
-db.connect((err) => {
-  if (err) {
-    console.error('Database connection failed: ' + err.stack);
-    return;
-  }
-  console.log('Connected to MySQL database');
+const noteSchema = new mongoose.Schema({
+  user_id: { type: String, required: true },
+  date: { type: Date, required: true },
+  content: { type: String, required: true },
 });
+
+const User = mongoose.model('users', userSchema);
+const Note = mongoose.model('notes', noteSchema);
 
 // Routes
 
-// Signup Route
-app.post('/signup', (req, res) => {
-  const { name, userId, role, password } = req.body;
+const bcrypt = require('bcrypt');
 
-  if (!name || !userId || !role || !password) {
+app.post('/signup', async (req, res) => {
+  const { name, userId, password } = req.body;
+
+  if (!name || !userId || !password) {
     return res.status(400).json({ message: 'Please fill all fields!' });
   }
 
-  const query = 'INSERT INTO users (name, user_id, role, password) VALUES (?, ?, ?, ?)';
-  db.query(query, [name, userId, role, password], (err) => {
-    if (err) {
-      if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(409).json({ message: 'User ID already exists!' });
-      }
-      console.error(err);
-      return res.status(500).json({ message: 'Error creating user' });
-    }
+  try {
+    // Hash the password
+    const saltRounds = 10; // Higher is more secure but slower
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    const newUser = new User({ name, user_id: userId, password: hashedPassword });
+    await newUser.save();
     res.status(201).json({ message: 'User created successfully!' });
-  });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ message: 'User ID already exists!' });
+    }
+    console.error(err);
+    return res.status(500).json({ message: 'Error creating user' });
+  }
 });
 
 // Login Route
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { userId, password } = req.body;
 
   if (!userId || !password) {
     return res.status(400).json({ message: 'Please enter User ID and Password!' });
   }
 
-  const query = 'SELECT * FROM users WHERE user_id = ? AND password = ?';
-  db.query(query, [userId, password], (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ message: 'Error during login' });
+  try {
+    const user = await User.findOne({ user_id: userId });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid User ID or Password!' });
     }
-    if (results.length > 0) {
-      const user = results[0];
-      delete user.password; // Remove password from response for security
-      res.status(200).json({ message: 'Login successful!', user });
-    } else {
-      res.status(401).json({ message: 'Invalid User ID or Password!' });
+
+    // Compare the hashed password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: 'Invalid User ID or Password!' });
     }
-  });
+
+    // Password is valid, return user details
+    const { password: _, ...userData } = user._doc; // Exclude the password from the response
+    res.status(200).json({ message: 'Login successful!', user: userData });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Error during login' });
+  }
 });
 
-// Get Notes for a Specific User and Date
-app.get('/api/notes', (req, res) => {
-  const { userId, date } = req.query;
 
-  if (!userId || !date) {
+// Save a Note
+app.post('/api/notes', async (req, res) => {
+  const { user_id, date, note } = req.body;
+
+  if (!user_id || !date || !note) {
+    return res.status(400).json({ message: 'User ID, date, and note content are required' });
+  }
+
+  try {
+    const newNote = new Note({
+      user_id,
+      date: new Date(date),
+      content: note,
+    });
+
+    await newNote.save();
+    res.status(201).json({ message: 'Note saved successfully!' });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Error saving note' });
+  }
+});
+
+// Fetch Notes by User ID and Date
+app.get('/api/notes', async (req, res) => {
+  const { user_id, date } = req.query;
+
+  if (!user_id || !date) {
     return res.status(400).json({ message: 'User ID and date are required' });
   }
 
-  const query = 'SELECT * FROM notes WHERE user_id = ? AND date = ?';
-  db.query(query, [userId, date], (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error retrieving notes' });
-    }
-    res.json(results); // Only notes for the specified user and date are returned
-  });
-});
-
-// Save a New Note
-app.post('/api/notes', (req, res) => {
-  const { userId, note, date } = req.body;
-
-  if (!userId || !note || !date) {
-    return res.status(400).json({ message: 'User ID, note, and date are required' });
+  try {
+    const notes = await Note.find({
+      user_id,
+      date: new Date(date),
+    });
+    res.json(notes);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch notes' });
   }
-
-  const query = 'INSERT INTO notes (user_id, content, date) VALUES (?, ?, ?)';
-  db.query(query, [userId, note, date], (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error saving note' });
-    }
-    res.status(201).json({ message: 'Note saved successfully!' });
-  });
 });
-app.put('/api/notes/:id', (req, res) => {
+
+// Update Note
+app.put('/api/notes/:id', async (req, res) => {
   const { id } = req.params;
   const { note } = req.body;
 
-  const query = 'UPDATE notes SET content = ? WHERE id = ?';
-  db.query(query, [note, id], (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error updating note' });
-    }
+  if (!note) {
+    return res.status(400).json({ message: 'Note content is required' });
+  }
+
+  try {
+    await Note.findByIdAndUpdate(id, { content: note });
     res.json({ message: 'Note updated successfully!' });
-  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Error updating note' });
+  }
 });
 
-app.delete('/api/notes/:id', (req, res) => {
+// Delete Note
+app.delete('/api/notes/:id', async (req, res) => {
   const { id } = req.params;
 
-  const query = 'DELETE FROM notes WHERE id = ?';
-  db.query(query, [id], (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error deleting note' });
-    }
+  try {
+    await Note.findByIdAndDelete(id);
     res.json({ message: 'Note deleted successfully!' });
-  });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Error deleting note' });
+  }
 });
+
+//encription const crypto = require('crypto');
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY; // 32 bytes
+const ENCRYPTION_IV = process.env.ENCRYPTION_IV;   // 16 bytes
+
+function encryptText(text) {
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), Buffer.from(ENCRYPTION_IV));
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return encrypted;
+}
+
+function decryptText(encryptedText) {
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), Buffer.from(ENCRYPTION_IV));
+  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
 
 // Handle undefined routes
 app.use((req, res) => {

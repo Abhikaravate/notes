@@ -1,29 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from "react";
 
 function DayNotePage({ user }) {
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
   const [date, setDate] = useState(new Date());
   const [notes, setNotes] = useState([]);
   const [editNoteId, setEditNoteId] = useState(null);
 
-  const API_BASE_URL = 'https://notes-backend-ds62.onrender.com';
+  const API_BASE_URL = 'http://localhost:5000';
 
   const fetchNotesForUserAndDate = useCallback(async (selectedDate = date) => {
     try {
-      if (!user) return;
-      const formattedDate = selectedDate.toISOString().split('T')[0];
-      const response = await fetch(`${API_BASE_URL}/api/notes?userId=${user.id}&date=${formattedDate}`);
-      if (!response.ok) throw new Error('Failed to fetch notes');
+      if (!user || !user.user_id) return; // Use user.user_id instead of user.id
+      const formattedDate = selectedDate.toISOString().split("T")[0];
+      const response = await fetch(
+        `${API_BASE_URL}/api/notes?user_id=${user.user_id}&date=${formattedDate}` // Change to user_id
+      );
+      if (!response.ok) throw new Error("Failed to fetch notes");
       const data = await response.json();
       setNotes(data);
     } catch (error) {
-      console.error('Error fetching notes:', error);
+      console.error("Error fetching notes:", error);
     }
   }, [date, user]);
 
   useEffect(() => {
-    fetchNotesForUserAndDate();
-  }, [fetchNotesForUserAndDate]);
+    if (user && user.user_id) {
+      fetchNotesForUserAndDate();
+    }
+  }, [fetchNotesForUserAndDate, user]);
 
   const handleNoteChange = (e) => setNote(e.target.value);
 
@@ -35,78 +39,116 @@ function DayNotePage({ user }) {
 
   const saveNote = async () => {
     try {
-      if (!user) return;
-      const formattedDate = date.toISOString().split('T')[0];
-      const method = editNoteId ? 'PUT' : 'POST';
-      const endpoint = editNoteId ? `${API_BASE_URL}/api/notes/${editNoteId}` : `${API_BASE_URL}/api/notes`;
-
+      if (!user || !user.user_id) {
+        console.error("User is not logged in.");
+        return; // Don't proceed if user is not logged in
+      }
+      const formattedDate = date.toISOString().split("T")[0];
+      const requestPayload = { user_id: user.user_id, date: formattedDate, note }; // Use user_id
+      console.log("Request Payload:", requestPayload);  // Log the payload to check the structure
+  
+      const method = editNoteId ? "PUT" : "POST";
+      const endpoint = editNoteId
+        ? `${API_BASE_URL}/api/notes/${editNoteId}`
+        : `${API_BASE_URL}/api/notes`;
+  
       const response = await fetch(endpoint, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, date: formattedDate, note }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
       });
-
-      if (!response.ok) throw new Error('Failed to save note');
-      setNote('');
+  
+      if (!response.ok) throw new Error("Failed to save note");
+      setNote("");
       setEditNoteId(null);
       fetchNotesForUserAndDate();
     } catch (error) {
-      console.error('Error saving note:', error);
+      console.error("Error saving note:", error);
     }
   };
 
   const editNote = (note) => {
-    setEditNoteId(note.id);
+    setEditNoteId(note._id);
     setNote(note.content);
   };
 
   const deleteNote = async (noteId) => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/notes/${noteId}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
-      if (!response.ok) throw new Error('Failed to delete note');
+      if (!response.ok) throw new Error("Failed to delete note");
       fetchNotesForUserAndDate();
     } catch (error) {
-      console.error('Error deleting note:', error);
+      console.error("Error deleting note:", error);
     }
   };
+
+  // Early return if no user is logged in
+  if (!user || !user.user_id) {
+    return (
+      <div style={styles.container}>
+        <h1 style={styles.header}>Day Notes</h1>
+        <p style={styles.welcome}>Please log in to view your notes.</p>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
       <h1 style={styles.header}>Day Notes</h1>
-      <p style={styles.welcome}>Welcome, {user?.name || 'Guest'}!</p>
-      
-      <div style={styles.noteInput}>
-        <textarea
-          placeholder="Write your note here..."
-          value={note}
-          onChange={handleNoteChange}
-          rows="5"
-          cols="30"
-          style={styles.textArea}
-        />
-      </div>
-      <button onClick={saveNote} style={styles.button}>{editNoteId ? 'Update Note' : 'Save Note'}</button>
+      <p style={styles.welcome}>
+        Welcome, {user?.name || "Guest"}!
+      </p>
       <div style={styles.datePicker}>
-        <label htmlFor="date">Select Date: </label>
+        <label htmlFor="date" style={styles.label}>
+          Select Date:{" "}
+        </label>
         <input
           type="date"
           id="date"
-          value={date.toISOString().split('T')[0]}
+          value={date.toISOString().split("T")[0]}
           onChange={handleDateChange}
           style={styles.input}
         />
       </div>
-      <h2 style={styles.subHeader}>Notes for {date.toISOString().split('T')[0]}</h2>
+      <textarea
+        placeholder="Write your note here..."
+        value={note}
+        onChange={handleNoteChange}
+        rows="5"
+        style={styles.textArea}
+      />
+      <button onClick={saveNote} style={styles.saveButton}>
+        {editNoteId ? "Update Note" : "Save Note"}
+      </button>
+      <h2 style={styles.subHeader}>
+        Notes for {date.toISOString().split("T")[0]}
+      </h2>
       <ul style={styles.noteList}>
         {notes.length > 0 ? (
           notes.map((note) => (
-            <li key={note.id} style={styles.noteItem}>
-              <p style={styles.noteContent}>{note.content}</p>
-              <p style={styles.noteTime}><small>{new Date(note.date).toLocaleTimeString()}</small></p>
-              <button onClick={() => editNote(note)} style={styles.editButton}>Edit</button>
-              <button onClick={() => deleteNote(note.id)} style={styles.deleteButton}>Delete</button>
+            <li key={note._id} style={styles.noteItem}>
+              <div>
+                <p style={styles.noteContent}>{note.content}</p>
+                <small style={styles.noteTime}>
+                  {new Date(note.date).toLocaleTimeString()}
+                </small>
+              </div>
+              <div>
+                <button
+                  onClick={() => editNote(note)}
+                  style={styles.editButton}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteNote(note._id)}
+                  style={styles.deleteButton}
+                >
+                  Delete
+                </button>
+              </div>
             </li>
           ))
         ) : (
@@ -119,99 +161,103 @@ function DayNotePage({ user }) {
 
 const styles = {
   container: {
-    fontFamily: '"Comic Sans MS", "Chalkboard SE", cursive',
-    padding: '20px',
-    maxWidth: '600px',
-    margin: '0 auto',
-    textAlign: 'center',
-    backgroundColor: '#FFE4E1',
-    borderRadius: '15px',
-    boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+    fontFamily: "Arial, sans-serif",
+    padding: "20px",
+    maxWidth: "800px",
+    margin: "0 auto",
+    backgroundColor: "#f9f9f9",
+    borderRadius: "10px",
+    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
   },
   header: {
-    color: '#FF69B4',
-    fontSize: '2.5em',
-    marginBottom: '10px',
+    color: "#333",
+    fontSize: "2em",
+    marginBottom: "10px",
+    textAlign: "center",
   },
   welcome: {
-    fontSize: '1.2em',
-    color: '#FFB6C1',
+    fontSize: "1em",
+    marginBottom: "20px",
+    textAlign: "center",
   },
   datePicker: {
-    margin: '10px 0',
+    marginBottom: "15px",
+    textAlign: "center",
+  },
+  label: {
+    fontSize: "1em",
+    marginRight: "10px",
   },
   input: {
-    border: '2px solid #FF69B4',
-    borderRadius: '5px',
-    padding: '5px',
-    color: '#FF69B4',
-  },
-  noteInput: {
-    margin: '10px ',
-    marginRight : '25px'
+    padding: "8px",
+    fontSize: "1em",
+    border: "1px solid #ccc",
+    borderRadius: "5px",
   },
   textArea: {
-    width: '100%',
-    padding: '10px',
-    border: '2px solid #FF69B4',
-    borderRadius: '10px',
-    fontFamily: 'inherit',
+    width: "100%",
+    padding: "10px",
+    borderRadius: "5px",
+    border: "1px solid #ccc",
+    fontSize: "1em",
   },
-  button: {
-    padding: '10px 20px',
-    margin: '10px',
-    backgroundColor: '#FF69B4',
-    color: 'white',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    fontSize: '1em',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+  saveButton: {
+    padding: "10px 15px",
+    backgroundColor: "#007BFF",
+    color: "white",
+    border: "none",
+    borderRadius: "5px",
+    cursor: "pointer",
+    fontSize: "1em",
+    display: "block",
+    margin: "20px auto",
   },
   subHeader: {
-    color: '#FF69B4',
-    fontSize: '1.5em',
-    marginBottom: '10px',
+    fontSize: "1.5em",
+    color: "#333",
+    margin: "20px 0",
   },
   noteList: {
-    listStyleType: 'none',
-    padding: '0',
+    listStyleType: "none",
+    paddingLeft: "0",
   },
   noteItem: {
-    border: '1px solid #FFC0CB',
-    padding: '10px',
-    margin: '10px 0',
-    borderRadius: '10px',
-    backgroundColor: '#FFF0F5',
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "10px",
+    backgroundColor: "#fff",
+    marginBottom: "10px",
+    borderRadius: "5px",
+    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
   },
   noteContent: {
-    fontSize: '1.1em',
-    color: '#FF69B4',
+    fontSize: "1em",
+    color: "#333",
   },
   noteTime: {
-    fontSize: '0.9em',
-    color: '#C71585',
+    fontSize: "0.8em",
+    color: "#888",
   },
   editButton: {
-    marginRight: '5px',
-    backgroundColor: '#FFB6C1',
-    border: 'none',
-    padding: '5px 10px',
-    cursor: 'pointer',
-    borderRadius: '5px',
-    color: '#FF69B4',
+    backgroundColor: "#FFC107",
+    color: "white",
+    border: "none",
+    padding: "5px 10px",
+    borderRadius: "5px",
+    cursor: "pointer",
+    marginRight: "10px",
   },
   deleteButton: {
-    backgroundColor: '#FF6EB4',
-    border: 'none',
-    padding: '5px 10px',
-    cursor: 'pointer',
-    borderRadius: '5px',
-    color: 'white',
+    backgroundColor: "#FF3B30",
+    color: "white",
+    border: "none",
+    padding: "5px 10px",
+    borderRadius: "5px",
+    cursor: "pointer",
   },
   noNotes: {
-    color: '#FF69B4',
-    fontStyle: 'italic',
+    color: "#777",
+    fontStyle: "italic",
   },
 };
 
