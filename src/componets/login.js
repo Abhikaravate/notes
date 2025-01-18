@@ -24,7 +24,7 @@ const LoginPage = ({ onLogin }) => {
     setFormData({ ...formData, [name]: value });
   };
 
-  const API_BASE_URL = 'http://localhost:5000';
+  const API_BASE_URL = 'https://note-frontend-7095.onrender.com';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
